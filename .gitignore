@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+testnet_credentials.json
+
+# Database (regenerated on run)
+zipp.db
+
+# Real invoices (confidential supplier data)
+factura.pdf
+*_invoice*.pdf
+*_invoice*.png
+
+# OS files
+.DS_Store
+
+# Build output
+dist/
