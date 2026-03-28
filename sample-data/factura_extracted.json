@@ -1,0 +1,31 @@
+{
+  "extracted": {
+    "language": "en",
+    "invoice_number": "El268T000084",
+    "invoice_date": "2026-03-11",
+    "due_date": "2026-09-07",
+    "currency": "USD",
+    "total_amount": "60388.00",
+    "supplier_name": "LUXEMBOURG INDUSTRIES LTD.",
+    "supplier_address": "27 Hamered St., Tel Aviv 6812509, Israel",
+    "payment_method": "IBAN",
+    "payment_reference": null,
+    "notes": null,
+    "bank_name": "Bank Leumi Le Israel",
+    "account_holder": "Luxembourg Industries Ltd.",
+    "iban": "/IL3 1010 7670 0000 0282 0050",
+    "bic_swift": "LUMIILITTLV",
+    "routing_number": null,
+    "account_number": "02820050",
+    "sort_code": null
+  },
+  "validation": {
+    "status": "OK",
+    "confidence": "100%",
+    "extraction_method": "OCR_GPT4O",
+    "payment_method_detected": "IBAN",
+    "issues": [],
+    "warnings": [],
+    "requires_human_review": false
+  }
+}
