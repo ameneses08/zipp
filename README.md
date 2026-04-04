@@ -20,7 +20,7 @@ Built for [Ripple's XRPL Student Builder Residency (Cohort 3)](https://xrpl.org/
 src/
   01_setup.ts              # XRPL testnet wallet + RLUSD trust line setup
   02_transfer.ts           # RLUSD payment between wallets
-  03_invoice_extractor.py  # Tiered OCR + AI extraction pipeline
+  invoice_extractor.py     # Tiered OCR + AI extraction pipeline
   04_invoice_alerts.ts     # Due date tracking + dashboard
 docs/
   zipp-v3.html             # Landing page
@@ -34,9 +34,7 @@ sample-data/
 # Install Node dependencies
 npm install
 
-# Set up environment
-cp .env.example .env
-# Add your OPENAI_API_KEY to .env
+# Create a .env file with your OPENAI_API_KEY
 
 # Run wallet setup (creates testnet wallets + RLUSD trust lines)
 npx ts-node src/01_setup.ts
@@ -46,7 +44,7 @@ npx ts-node src/01_setup.ts
 npx ts-node src/02_transfer.ts
 
 # Extract invoice data
-python src/03_invoice_extractor.py your_invoice.pdf
+python src/invoice_extractor.py your_invoice.pdf
 
 # Run alerts demo
 npx ts-node src/04_invoice_alerts.ts
@@ -62,4 +60,4 @@ npx ts-node src/04_invoice_alerts.ts
 
 ## Status
 
-Sprint 1 complete. Building UI and integration flow for Demo Day (April 10, 2025).
+Live at [tryzipp.com](https://tryzipp.com). Built for Ripple's XRPL Student Builder Residency, Cohort 3.

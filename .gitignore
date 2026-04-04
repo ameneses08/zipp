@@ -5,13 +5,21 @@ node_modules/
 .env
 testnet_credentials.json
 
+# Python
+__pycache__/
+*.pyc
+
 # Database (regenerated on run)
 zipp.db
+
+# Archives
+*.zip
 
 # Real invoices (confidential supplier data)
 factura.pdf
 *_invoice*.pdf
 *_invoice*.png
+sample-data/*.pdf
 
 # OS files
 .DS_Store
