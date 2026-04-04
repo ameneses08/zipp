@@ -1,40 +1,13 @@
-/**
- * ZIPP — Sprint 1, Deliverable 4
- * Invoice Alert System
- *
- * Stores extracted invoices in SQLite, tracks due dates,
- * and generates alerts + dashboard summaries.
- *
- * Architecture:
- *   - SQLite via better-sqlite3 (local, zero-config, single file)
- *   - Consumes JSON output from 03_invoice_extractor.py
- *   - Standalone module — will be imported by the UI in Sprint 2/3
- *
- * Usage:
- *   npx ts-node 04_invoice_alerts.ts                  # run demo with sample data
- *   npx ts-node 04_invoice_alerts.ts path/to/extracted.json  # import real extraction
- *
- * Status lifecycle:
- *   pending → due_soon (7 days before) → overdue (past due) → paid
- *
- * NOTE: This file uses better-sqlite3 (npm install better-sqlite3)
- *       The Claude environment used sql.js for testing — same SQL, different API.
- *       On your machine with Cursor, better-sqlite3 is the one to use.
- */
+// Invoice alert system: SQLite storage, due date tracking, and dashboard summaries
 
 import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 
-// ── Config ───────────────────────────────────────────────────────────────────
-
 const DB_PATH = path.join(__dirname, "zipp.db");
-const ALERT_DAYS_BEFORE = 7; // "due_soon" triggers 7 days before due_date
+const ALERT_DAYS_BEFORE = 7;
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-// What the Python extractor outputs (after flattening)
 interface ExtractedInvoice {
   language?: string;
   invoice_number: string | null;
@@ -56,7 +29,6 @@ interface ExtractedInvoice {
   notes?: string | null;
 }
 
-// What we store in the database
 type InvoiceStatus = "pending" | "due_soon" | "overdue" | "paid";
 
 interface StoredInvoice {
@@ -103,12 +75,9 @@ interface DashboardSummary {
 }
 
 
-// ── Database Setup ───────────────────────────────────────────────────────────
-
 function initDatabase(dbPath: string = DB_PATH): Database.Database {
   const db = new Database(dbPath);
 
-  // Enable WAL mode for better concurrent read performance
   db.pragma("journal_mode = WAL");
 
   db.exec(`
@@ -139,12 +108,6 @@ function initDatabase(dbPath: string = DB_PATH): Database.Database {
 }
 
 
-// ── Core Functions ───────────────────────────────────────────────────────────
-
-/**
- * Save an extracted invoice to the database.
- * Accepts the JSON output from 03_invoice_extractor.py (post-flattening).
- */
 function saveInvoice(db: Database.Database, extracted: ExtractedInvoice): StoredInvoice {
   const id = crypto.randomUUID();
   const amount = extracted.total_amount
@@ -173,35 +136,25 @@ function saveInvoice(db: Database.Database, extracted: ExtractedInvoice): Stored
     extracted.payment_reference || null
   );
 
-  console.log(`  ✅ Invoice saved: ${extracted.supplier_name} — ${extracted.currency} ${extracted.total_amount} (due: ${extracted.due_date || "no date"})`);
+  console.log(`  Invoice saved: ${extracted.supplier_name} — ${extracted.currency} ${extracted.total_amount} (due: ${extracted.due_date || "no date"})`);
 
   return getInvoice(db, id)!;
 }
 
 
-/**
- * Import an extracted JSON file (the _extracted.json output from the Python pipeline).
- */
 function importFromExtractorOutput(db: Database.Database, filePath: string): StoredInvoice {
   const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  // The extractor saves { extracted: {...}, validation: {...} }
   const extracted: ExtractedInvoice = raw.extracted || raw;
   return saveInvoice(db, extracted);
 }
 
 
-/**
- * Get a single invoice by ID.
- */
 function getInvoice(db: Database.Database, id: string): StoredInvoice | null {
   const row = db.prepare("SELECT * FROM invoices WHERE id = ?").get(id);
   return (row as StoredInvoice) || null;
 }
 
 
-/**
- * Get all invoices, optionally filtered by status.
- */
 function getInvoices(db: Database.Database, status?: InvoiceStatus): StoredInvoice[] {
   if (status) {
     return db.prepare("SELECT * FROM invoices WHERE status = ? ORDER BY due_date ASC").all(status) as StoredInvoice[];
@@ -210,9 +163,6 @@ function getInvoices(db: Database.Database, status?: InvoiceStatus): StoredInvoi
 }
 
 
-/**
- * Mark an invoice as paid. This is the human-in-the-loop confirmation step.
- */
 function markAsPaid(db: Database.Database, id: string): StoredInvoice | null {
   db.prepare(`
     UPDATE invoices SET status = 'paid', paid_at = datetime('now') WHERE id = ?
@@ -220,7 +170,7 @@ function markAsPaid(db: Database.Database, id: string): StoredInvoice | null {
 
   const invoice = getInvoice(db, id);
   if (invoice) {
-    console.log(`  ✅ Marked as paid: ${invoice.supplier_name} — ${invoice.currency} ${invoice.total_amount}`);
+    console.log(`  Marked as paid: ${invoice.supplier_name} — ${invoice.currency} ${invoice.total_amount}`);
   }
   return invoice;
 }
@@ -228,28 +178,24 @@ function markAsPaid(db: Database.Database, id: string): StoredInvoice | null {
 
 /**
  * Update invoice statuses based on current date.
- * This is the core alert engine — call it on app start or periodically.
  *
  * Logic:
- *   - due_date is past today AND status != paid → overdue
- *   - due_date is within ALERT_DAYS_BEFORE days AND status == pending → due_soon
+ *   - due_date is past today AND status != paid -> overdue
+ *   - due_date is within ALERT_DAYS_BEFORE days AND status == pending -> due_soon
  */
 function refreshStatuses(db: Database.Database): void {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const today = new Date().toISOString().split("T")[0];
 
-  // Calculate the "due_soon" threshold date
   const threshold = new Date();
   threshold.setDate(threshold.getDate() + ALERT_DAYS_BEFORE);
   const thresholdDate = threshold.toISOString().split("T")[0];
 
-  // Mark overdue (past due, not paid)
   db.prepare(`
     UPDATE invoices
     SET status = 'overdue'
     WHERE due_date < ? AND status != 'paid' AND due_date IS NOT NULL
   `).run(today);
 
-  // Mark due_soon (within 7 days, currently pending)
   db.prepare(`
     UPDATE invoices
     SET status = 'due_soon'
@@ -258,12 +204,7 @@ function refreshStatuses(db: Database.Database): void {
 }
 
 
-/**
- * Generate alerts for invoices that need attention.
- * Returns sorted by urgency: overdue first, then due_today, then due_soon.
- */
 function checkAlerts(db: Database.Database): Alert[] {
-  // Refresh statuses first
   refreshStatuses(db);
 
   const today = new Date().toISOString().split("T")[0];
@@ -307,7 +248,6 @@ function checkAlerts(db: Database.Database): Alert[] {
     };
   });
 
-  // Sort: overdue first, then due_today, then due_soon
   const urgencyOrder = { overdue: 0, due_today: 1, due_soon: 2 };
   alerts.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
 
@@ -315,11 +255,7 @@ function checkAlerts(db: Database.Database): Alert[] {
 }
 
 
-/**
- * Dashboard summary — everything the UI needs at a glance.
- */
 function getDashboardSummary(db: Database.Database): DashboardSummary {
-  // Refresh statuses first
   refreshStatuses(db);
 
   const all = getInvoices(db);
@@ -334,12 +270,10 @@ function getDashboardSummary(db: Database.Database): DashboardSummary {
 
   const unpaid = all.filter((i) => i.status !== "paid");
 
-  // Total pending = pending + due_soon (not yet paid, not yet overdue)
   const totalAmountPending = [...pending, ...dueSoon].reduce(
     (sum, i) => sum + (i.total_amount || 0), 0
   );
 
-  // Due this week
   const todayStr = today.toISOString().split("T")[0];
   const weekStr = weekFromNow.toISOString().split("T")[0];
   const dueThisWeek = unpaid.filter(
@@ -349,19 +283,16 @@ function getDashboardSummary(db: Database.Database): DashboardSummary {
     (sum, i) => sum + (i.total_amount || 0), 0
   );
 
-  // Overdue total
   const totalAmountOverdue = overdue.reduce(
     (sum, i) => sum + (i.total_amount || 0), 0
   );
 
-  // Currency breakdown (unpaid only)
   const currencyBreakdown: Record<string, number> = {};
   for (const inv of unpaid) {
     const cur = inv.currency || "UNKNOWN";
     currencyBreakdown[cur] = (currencyBreakdown[cur] || 0) + (inv.total_amount || 0);
   }
 
-  // Next due invoice
   const nextDue = unpaid
     .filter((i) => i.due_date && i.due_date >= todayStr)
     .sort((a, b) => (a.due_date! > b.due_date! ? 1 : -1))[0] || null;
@@ -381,8 +312,6 @@ function getDashboardSummary(db: Database.Database): DashboardSummary {
 }
 
 
-// ── Exports (for Sprint 2/3 UI integration) ──────────────────────────────────
-
 export {
   initDatabase,
   saveInvoice,
@@ -401,31 +330,23 @@ export {
 };
 
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Demo / CLI — Run this file directly to see it in action
-// ══════════════════════════════════════════════════════════════════════════════
-
 function printSection(title: string): void {
-  console.log(`\n${"═".repeat(58)}`);
+  console.log(`\n${"=".repeat(58)}`);
   console.log(`  ${title}`);
-  console.log(`${"═".repeat(58)}`);
+  console.log(`${"=".repeat(58)}`);
 }
 
 function runDemo(): void {
-  console.log(`\n${"═".repeat(58)}`);
+  console.log(`\n${"=".repeat(58)}`);
   console.log(`  ZIPP Invoice Alert System — Demo`);
-  console.log(`${"═".repeat(58)}`);
+  console.log(`${"=".repeat(58)}`);
   console.log(`  Today: ${new Date().toISOString().split("T")[0]}`);
   console.log(`  Alert threshold: ${ALERT_DAYS_BEFORE} days before due date\n`);
 
-  // Use in-memory DB for demo (won't persist)
   const db = initDatabase(":memory:");
-
-  // ── Sample invoices that simulate a real accountant's queue ─────────────
 
   const today = new Date();
 
-  // Helper to create dates relative to today
   const daysFromNow = (n: number): string => {
     const d = new Date(today);
     d.setDate(d.getDate() + n);
@@ -436,7 +357,7 @@ function runDemo(): void {
     {
       invoice_number: "INV-2025-0412",
       invoice_date: daysFromNow(-20),
-      due_date: daysFromNow(-3),           // 3 days OVERDUE
+      due_date: daysFromNow(-3),
       currency: "EUR",
       total_amount: "12450.00",
       supplier_name: "Schmidt Maschinenbau GmbH",
@@ -448,7 +369,7 @@ function runDemo(): void {
     {
       invoice_number: "INV-2025-0587",
       invoice_date: daysFromNow(-10),
-      due_date: daysFromNow(0),            // DUE TODAY
+      due_date: daysFromNow(0),
       currency: "EUR",
       total_amount: "5069.40",
       supplier_name: "Olivetti Forniture S.r.l.",
@@ -460,7 +381,7 @@ function runDemo(): void {
     {
       invoice_number: "INV-2025-0623",
       invoice_date: daysFromNow(-5),
-      due_date: daysFromNow(4),            // Due in 4 days — DUE SOON
+      due_date: daysFromNow(4),
       currency: "EUR",
       total_amount: "8200.00",
       supplier_name: "Dubois et Fils SARL",
@@ -472,7 +393,7 @@ function runDemo(): void {
     {
       invoice_number: "INV-2025-0701",
       invoice_date: daysFromNow(-2),
-      due_date: daysFromNow(25),           // Due in 25 days — PENDING (no alert)
+      due_date: daysFromNow(25),
       currency: "EUR",
       total_amount: "3150.75",
       supplier_name: "Van der Berg Logistics BV",
@@ -484,7 +405,7 @@ function runDemo(): void {
     {
       invoice_number: "INV-2025-0455",
       invoice_date: daysFromNow(-30),
-      due_date: daysFromNow(-15),          // 15 days OVERDUE
+      due_date: daysFromNow(-15),
       currency: "GBP",
       total_amount: "6800.00",
       supplier_name: "Whitfield Industrial Supplies Ltd",
@@ -495,14 +416,10 @@ function runDemo(): void {
     },
   ];
 
-  // ── Save all invoices ──────────────────────────────────────────────────
-
   printSection("SAVING INVOICES");
   for (const inv of sampleInvoices) {
     saveInvoice(db, inv);
   }
-
-  // ── Check alerts ───────────────────────────────────────────────────────
 
   printSection("ALERTS");
   const alerts = checkAlerts(db);
@@ -511,14 +428,12 @@ function runDemo(): void {
     console.log("  No alerts — all invoices are on track.");
   } else {
     for (const alert of alerts) {
-      const icon =
-        alert.urgency === "overdue" ? "🔴" :
-        alert.urgency === "due_today" ? "🟡" : "🟠";
-      console.log(`  ${icon} ${alert.message}`);
+      const label =
+        alert.urgency === "overdue" ? "[OVERDUE]" :
+        alert.urgency === "due_today" ? "[TODAY]" : "[SOON]";
+      console.log(`  ${label} ${alert.message}`);
     }
   }
-
-  // ── Dashboard summary ──────────────────────────────────────────────────
 
   printSection("DASHBOARD SUMMARY");
   const summary = getDashboardSummary(db);
@@ -541,18 +456,14 @@ function runDemo(): void {
     console.log(`\n  Next due: ${summary.next_due.supplier_name} — ${summary.next_due.currency} ${summary.next_due.total_amount} on ${summary.next_due.due_date}`);
   }
 
-  // ── Simulate paying an invoice ─────────────────────────────────────────
-
   printSection("SIMULATING PAYMENT");
   const overdueInvoices = getInvoices(db, "overdue");
   if (overdueInvoices.length > 0) {
     const toPay = overdueInvoices[0];
     console.log(`  Accountant confirms payment for: ${toPay.supplier_name}`);
-    console.log(`  → This would trigger XRPL RLUSD transfer via 02_transfer.ts`);
+    console.log(`  -> This would trigger XRPL RLUSD transfer via 02_transfer.ts`);
     markAsPaid(db, toPay.id);
   }
-
-  // ── Updated dashboard after payment ────────────────────────────────────
 
   printSection("DASHBOARD AFTER PAYMENT");
   const updated = getDashboardSummary(db);
@@ -568,12 +479,9 @@ function runDemo(): void {
 }
 
 
-// ── CLI entry point ──────────────────────────────────────────────────────────
-
 const args = process.argv.slice(2);
 
 if (args.length > 0 && fs.existsSync(args[0])) {
-  // Import mode: load an extracted JSON file
   const db = initDatabase();
   console.log(`\n  Importing: ${args[0]}`);
   importFromExtractorOutput(db, args[0]);
@@ -581,14 +489,13 @@ if (args.length > 0 && fs.existsSync(args[0])) {
   console.log("\n  Current alerts:");
   const alerts = checkAlerts(db);
   for (const alert of alerts) {
-    const icon =
-      alert.urgency === "overdue" ? "🔴" :
-      alert.urgency === "due_today" ? "🟡" : "🟠";
-    console.log(`  ${icon} ${alert.message}`);
+    const label =
+      alert.urgency === "overdue" ? "[OVERDUE]" :
+      alert.urgency === "due_today" ? "[TODAY]" : "[SOON]";
+    console.log(`  ${label} ${alert.message}`);
   }
 
   db.close();
 } else {
-  // Demo mode
   runDemo();
 }

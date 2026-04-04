@@ -1,21 +1,4 @@
-"""
-ZIPP - Sprint 1, Deliverable 3
-Invoice Extractor — Tiered Pipeline
-
-Tier 1:  EPC QR detected → decode payment fields instantly (IBAN, BIC, amount, reference)
-         Then ALWAYS run OCR+GPT-4o to fill gaps QR doesn't encode (dates, address, etc.)
-         QR fields take priority over OCR where both are present.
-
-Tier 2:  No QR → full OCR + GPT-4o for everything.
-
-Tier 3:  Validate merged result, flag issues for human review.
-
-Usage:
-  python 03_invoice_extractor.py sample_invoice_qr.png     # QR + OCR fill
-  python 03_invoice_extractor.py sample_invoice.png        # OCR only
-  python 03_invoice_extractor.py spanish_invoice_no_iban.png
-  python 03_invoice_extractor.py your_real_invoice.pdf
-"""
+# Tiered invoice extraction: EPC QR decode, OCR + GPT-4o structuring, validation
 
 import sys
 import os
@@ -29,7 +12,6 @@ from pyzbar import pyzbar
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# ── Config ────────────────────────────────────────────────────────────────────
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = "gpt-4o"
@@ -51,7 +33,7 @@ PAYMENT_ROUTING_FIELDS = [
     "bic_swift",
 ]
 
-# Fields the EPC QR standard encodes — these come from QR, not OCR
+# Fields the EPC QR standard encodes — these take priority over OCR
 QR_AUTHORITATIVE_FIELDS = [
     "iban",
     "bic_swift",
@@ -65,10 +47,6 @@ QR_AUTHORITATIVE_FIELDS = [
 
 PREFERRED_LANGUAGES = ["eng+spa+deu+fra", "eng+spa", "eng"]
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TIER 1 — EPC QR Code
-# ══════════════════════════════════════════════════════════════════════════════
 
 def parse_epc_qr(payload: str) -> dict | None:
     lines = payload.strip().split("\n")
@@ -130,10 +108,6 @@ def detect_and_decode_qr(file_path: str) -> dict | None:
                         continue
     return None
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TIER 2 — OCR + GPT-4o
-# ══════════════════════════════════════════════════════════════════════════════
 
 def get_available_tesseract_lang() -> str:
     try:
@@ -248,7 +222,6 @@ def merge_qr_and_ocr(qr_data: dict, ocr_data: dict) -> dict:
     for field in QR_AUTHORITATIVE_FIELDS:
         if qr_data.get(field):
             merged[field] = qr_data[field]
-    # If QR provided a single IBAN, inject it into bank_accounts[0]
     if qr_data.get("iban") and merged.get("bank_accounts"):
         merged["bank_accounts"][0]["iban"] = qr_data["iban"]
         if qr_data.get("bic_swift"):
@@ -258,19 +231,12 @@ def merge_qr_and_ocr(qr_data: dict, ocr_data: dict) -> dict:
     return merged
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ACCOUNT SELECTION — prompt user when multiple accounts found
-# ══════════════════════════════════════════════════════════════════════════════
-
 def select_bank_account(bank_accounts: list) -> dict:
-    """
-    If multiple bank accounts found, prompt the accountant to choose one.
-    Returns the selected account dict.
-    """
+    """If multiple bank accounts found, prompt the accountant to choose one."""
     if len(bank_accounts) == 1:
         return bank_accounts[0]
 
-    print("\n  ⚠️  Multiple bank accounts found on this invoice.")
+    print("\n  Multiple bank accounts found on this invoice.")
     print("  Please select which account to pay:\n")
 
     for i, account in enumerate(bank_accounts, 1):
@@ -290,7 +256,7 @@ def select_bank_account(bank_accounts: list) -> dict:
             choice = int(input(f"  Enter number (1-{len(bank_accounts)}): ").strip())
             if 1 <= choice <= len(bank_accounts):
                 selected = bank_accounts[choice - 1]
-                print(f"\n  ✅ Selected: {selected.get('bank_name') or 'Account'} — {selected.get('iban') or selected.get('account_number')}\n")
+                print(f"\n  Selected: {selected.get('bank_name') or 'Account'} — {selected.get('iban') or selected.get('account_number')}\n")
                 return selected
             else:
                 print(f"  Please enter a number between 1 and {len(bank_accounts)}.")
@@ -310,10 +276,6 @@ def flatten_selected_account(data: dict, selected: dict) -> dict:
     result["sort_code"] = selected.get("sort_code")
     return result
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TIER 3 — Validation
-# ══════════════════════════════════════════════════════════════════════════════
 
 def validate_extraction(data: dict, used_qr: bool) -> dict:
     issues = []
@@ -356,63 +318,49 @@ def validate_extraction(data: dict, used_qr: bool) -> dict:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Main
-# ══════════════════════════════════════════════════════════════════════════════
-
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python 03_invoice_extractor.py <invoice_file>")
+        print("Usage: python invoice_extractor.py <invoice_file>")
         sys.exit(1)
 
     file_path = sys.argv[1]
     if not os.path.exists(file_path):
-        print(f"❌ File not found: {file_path}")
+        print(f"File not found: {file_path}")
         sys.exit(1)
 
-    print(f"\n{'═'*58}")
-    print(f"  ZIPP Invoice Extractor — Tiered Pipeline")
-    print(f"{'═'*58}")
+    print(f"\nZIPP Invoice Extractor")
     print(f"  File: {file_path}\n")
 
-    # ── Tier 1: EPC QR ───────────────────────────────────────────────────────
     print("Tier 1 — Scanning for EPC QR code...")
     qr_data = detect_and_decode_qr(file_path)
 
     if qr_data:
-        print("  ✅ EPC QR decoded — IBAN, BIC, amount, reference confirmed")
-        print("  ○  Running OCR to fill missing fields (dates, address, etc.)\n")
+        print("  EPC QR decoded — IBAN, BIC, amount, reference confirmed")
+        print("  Running OCR to fill missing fields (dates, address, etc.)\n")
     else:
-        print("  ○  No EPC QR found\n")
+        print("  No EPC QR found\n")
 
-    # ── Tier 2: OCR + GPT-4o (always runs) ───────────────────────────────────
     print("Tier 2 — Running Tesseract OCR...")
     raw_text, lang_used = extract_text_with_ocr(file_path)
-    print(f"  ✅ {len(raw_text)} characters  |  Language pack: {lang_used}")
+    print(f"  {len(raw_text)} characters  |  Language pack: {lang_used}")
     preview = raw_text[:250].replace('\n', ' ').strip()
     print(f"  Preview: \"{preview}...\"\n")
 
     print("  Structuring with GPT-4o...")
     ocr_data = structure_with_gpt4o(raw_text, qr_data)
-    print(f"  ✅ Done  |  Language detected: {ocr_data.get('language', 'unknown')}\n")
+    print(f"  Done  |  Language detected: {ocr_data.get('language', 'unknown')}\n")
 
-    # ── Merge ─────────────────────────────────────────────────────────────────
     if qr_data:
         extracted = merge_qr_and_ocr(qr_data, ocr_data)
-        print("  ✅ Merged: QR payment fields + OCR document fields\n")
+        print("  Merged: QR payment fields + OCR document fields\n")
     else:
         extracted = ocr_data
 
-    # ── Account selection ─────────────────────────────────────────────────────
     bank_accounts = extracted.get("bank_accounts") or []
     if bank_accounts:
         selected_account = select_bank_account(bank_accounts)
         extracted = flatten_selected_account(extracted, selected_account)
-    else:
-        # Fallback: old-style single account (no bank_accounts array returned)
-        pass
 
-    # ── Tier 3: Validate ──────────────────────────────────────────────────────
     print("Tier 3 — Validating...")
     validation = validate_extraction(extracted, used_qr=bool(qr_data))
     print(f"  Status:          {validation['status']}")
@@ -421,29 +369,24 @@ def main():
     print(f"  Payment method:  {validation['payment_method_detected']}")
     if validation["issues"]:
         for i in validation["issues"]:
-            print(f"  ❌ {i}")
+            print(f"  Issue: {i}")
     if validation["warnings"]:
         for w in validation["warnings"]:
-            print(f"  ⚠️  {w}")
+            print(f"  Warning: {w}")
     if not validation["issues"] and not validation["warnings"]:
-        print("  ✅ All fields validated — ready for payment processing")
+        print("  All fields validated — ready for payment processing")
     print()
 
-    # ── Output ────────────────────────────────────────────────────────────────
-    print(f"{'═'*58}")
-    print("  EXTRACTED PAYMENT DATA")
-    print(f"{'═'*58}")
+    print("EXTRACTED PAYMENT DATA")
     print(json.dumps(extracted, indent=2, ensure_ascii=False))
 
-    print(f"\n{'═'*58}")
-    print("  VALIDATION REPORT")
-    print(f"{'═'*58}")
+    print("\nVALIDATION REPORT")
     print(json.dumps(validation, indent=2, ensure_ascii=False))
 
     output_path = file_path.rsplit(".", 1)[0] + "_extracted.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump({"extracted": extracted, "validation": validation}, f, indent=2, ensure_ascii=False)
-    print(f"\n  💾 Saved to: {output_path}\n")
+    print(f"\n  Saved to: {output_path}\n")
 
 
 if __name__ == "__main__":

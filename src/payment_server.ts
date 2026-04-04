@@ -1,15 +1,4 @@
-/**
- * ZIPP — Payment API Server
- * Wraps the XRPL transfer logic as a REST endpoint.
- *
- * Run:
- *   npx ts-node src/payment_server.ts
- *
- * Endpoint:
- *   POST /pay  — Send RLUSD on testnet, return transaction hash
- *   GET /health — Check server is alive
- *   GET /balance — Check importer's current RLUSD balance
- */
+// XRPL RLUSD payment API server
 
 import express from "express";
 import cors from "cors";
@@ -17,7 +6,6 @@ import * as xrpl from "xrpl";
 import * as fs from "fs";
 import * as path from "path";
 
-// ─── Load credentials ───────────────────────────────────────────────────────
 const CREDENTIALS_PATH = path.join(__dirname, "..", "testnet_credentials.json");
 
 interface WalletCredentials {
@@ -35,7 +23,7 @@ interface Credentials {
 }
 
 if (!fs.existsSync(CREDENTIALS_PATH)) {
-  console.error("❌ No testnet_credentials.json found at:", CREDENTIALS_PATH);
+  console.error("No testnet_credentials.json found at:", CREDENTIALS_PATH);
   console.error("   Run 01_setup.ts first: npx ts-node src/01_setup.ts");
   process.exit(1);
 }
@@ -44,7 +32,6 @@ const creds: Credentials = JSON.parse(
   fs.readFileSync(CREDENTIALS_PATH, "utf8")
 );
 
-// ─── Express setup ──────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
 app.use(
@@ -53,9 +40,6 @@ app.use(
   })
 );
 
-// ─── POST /pay ──────────────────────────────────────────────────────────────
-// The React app calls this when the accountant clicks "Confirm payment".
-// It connects to XRPL testnet, sends RLUSD, and returns the transaction hash.
 app.post("/pay", async (req, res) => {
   try {
     const { amount, invoiceId } = req.body;
@@ -66,18 +50,15 @@ app.post("/pay", async (req, res) => {
 
     const transferAmount = parseFloat(amount).toString();
 
-    console.log(`\n💳 Payment request: ${transferAmount} RLUSD (Invoice: ${invoiceId || "N/A"})`);
+    console.log(`\nPayment request: ${transferAmount} RLUSD (Invoice: ${invoiceId || "N/A"})`);
 
-    // Connect to XRPL testnet
     const client = new xrpl.Client(creds.testnetUrl);
     await client.connect();
-    console.log("   📡 Connected to XRPL Testnet");
+    console.log("   Connected to XRPL Testnet");
 
-    // Restore wallets from saved seeds
     const importerWallet = xrpl.Wallet.fromSeed(creds.importer.seed);
     const supplierWallet = xrpl.Wallet.fromSeed(creds.supplier.seed);
 
-    // Check balance before sending
     const importerLines = await client.request({
       command: "account_lines",
       account: importerWallet.address,
@@ -105,7 +86,6 @@ app.post("/pay", async (req, res) => {
       });
     }
 
-    // Build and send the RLUSD payment — same logic as 02_transfer.ts
     const paymentTx: xrpl.Payment = {
       TransactionType: "Payment",
       Account: importerWallet.address,
@@ -120,16 +100,14 @@ app.post("/pay", async (req, res) => {
     const prepared = await client.autofill(paymentTx);
     const signed = importerWallet.sign(prepared);
 
-    console.log("   ⏳ Submitting to XRPL...");
+    console.log("   Submitting to XRPL...");
     const result = await client.submitAndWait(signed.tx_blob);
 
-    // Check if the transaction succeeded
     const meta = result.result.meta;
     const txResult =
       meta && typeof meta !== "string" ? meta.TransactionResult : "Unknown";
 
     if (txResult === "tesSUCCESS") {
-      // Get final balances
       const importerFinal = await client.request({
         command: "account_lines",
         account: importerWallet.address,
@@ -150,8 +128,8 @@ app.post("/pay", async (req, res) => {
 
       await client.disconnect();
 
-      console.log(`   ✅ SUCCESS! ${transferAmount} RLUSD sent`);
-      console.log(`   🔗 TX: ${signed.hash}\n`);
+      console.log(`   Payment complete: ${transferAmount} RLUSD sent`);
+      console.log(`   TX: ${signed.hash}\n`);
 
       return res.json({
         success: true,
@@ -165,17 +143,15 @@ app.post("/pay", async (req, res) => {
       });
     } else {
       await client.disconnect();
-      console.log(`   ❌ Failed: ${txResult}`);
+      console.log(`   Failed: ${txResult}`);
       return res.status(500).json({ error: `Transaction failed: ${txResult}` });
     }
   } catch (error: any) {
-    console.error("   ❌ Payment error:", error.message);
+    console.error("   Payment error:", error.message);
     return res.status(500).json({ error: error.message });
   }
 });
 
-// ─── GET /balance ───────────────────────────────────────────────────────────
-// Quick check of the importer's RLUSD balance
 app.get("/balance", async (_req, res) => {
   try {
     const client = new xrpl.Client(creds.testnetUrl);
@@ -204,15 +180,13 @@ app.get("/balance", async (_req, res) => {
   }
 });
 
-// ─── GET /health ────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", credentials: CREDENTIALS_PATH });
 });
 
-// ─── Start server ───────────────────────────────────────────────────────────
 const PORT = 3001;
 app.listen(PORT, () => {
-  console.log(`\n🚀 Zipp Payment API running on http://localhost:${PORT}`);
+  console.log(`\nZipp Payment API running on http://localhost:${PORT}`);
   console.log(`   Importer wallet: ${creds.importer.address}`);
   console.log(`   Supplier wallet: ${creds.supplier.address}\n`);
 });

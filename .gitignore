@@ -18,3 +18,4 @@ factura.pdf
 
 # Build output
 dist/
+.claude/
