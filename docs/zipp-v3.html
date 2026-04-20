@@ -663,8 +663,9 @@ footer {
     <div class="section-label" style="margin-bottom:0.75rem">Early access</div>
     <h2>Get early access.</h2>
     <p class="wl-sub">We are onboarding our first businesses in Latin America. Leave your email and we will reach out when your spot is ready.</p>
-    <form class="wl-form" onsubmit="onWL(event)">
-      <input type="email" id="wl-in" placeholder="work@company.com" required>
+    <form class="wl-form" action="https://formspree.io/f/xzdyvwlg" method="POST">
+      <input type="hidden" name="_subject" value="New Zipp Waitlist Signup">
+      <input type="email" name="email" id="wl-in" placeholder="work@company.com" required>
       <button type="submit" id="wl-btn">Get access</button>
     </form>
     <p class="wl-note">No spam. We will only contact you when Zipp is ready for your market.</p>
